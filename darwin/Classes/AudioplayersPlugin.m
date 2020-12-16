@@ -390,7 +390,29 @@ NSMutableDictionary * imageDict;
                      NSString *playerIndex = call.arguments[@"playerIndex"];
                      // 0 audio 1 radio
                      _playerIndex = playerIndex;
-                     
+                     MPRemoteCommand *pauseCommand = [remoteCommandCenter pauseCommand];
+                     [pauseCommand setEnabled:YES];
+                     MPRemoteCommand *playCommand = [remoteCommandCenter playCommand];
+                     [playCommand setEnabled:YES];
+                     MPRemoteCommand *togglePlayPauseCommand = [remoteCommandCenter togglePlayPauseCommand];
+                     [togglePlayPauseCommand setEnabled:YES];
+                     if([playerIndex isEqualToString:@"1"]){
+                         
+                           [pauseCommand removeTarget:self action:@selector(playOrPauseEvent:)];
+                         
+                           [playCommand removeTarget:self action:@selector(playOrPauseEvent:)];
+
+                         [togglePlayPauseCommand removeTarget:self action:@selector(playOrPauseEvent:)];
+                     }else{
+                         [pauseCommand removeTarget:self];
+                         [playCommand removeTarget:self];
+                         [togglePlayPauseCommand removeTarget:self];
+                         [pauseCommand addTarget:self action:@selector(playOrPauseEvent:)];
+                       
+                         [playCommand addTarget:self action:@selector(playOrPauseEvent:)];
+
+                       [togglePlayPauseCommand addTarget:self action:@selector(playOrPauseEvent:)];
+                     }
                  }
                 };
 
@@ -532,9 +554,9 @@ NSMutableDictionary * imageDict;
 
 -(MPRemoteCommandHandlerStatus) playOrPauseEvent: (MPRemoteCommandEvent *) playOrPauseEvent {
     // judge current player is audio or not
-    if([_playerIndex isEqualToString:@"1"]){
-        return MPRemoteCommandHandlerStatusCommandFailed;
-    }
+//    if([_playerIndex isEqualToString:@"1"]){
+//        return MPRemoteCommandHandlerStatusCommandFailed;
+//    }
 
     NSMutableDictionary * playerInfo = players[_currentPlayerId];
     AVPlayer *player = playerInfo[@"player"];
@@ -664,7 +686,7 @@ NSMutableDictionary * imageDict;
         success = [[AVAudioSession sharedInstance] setCategory:category withOptions:AVAudioSessionCategoryOptionMixWithOthers error:&error];
       } else {
         success = [[AVAudioSession sharedInstance] setCategory:category error:&error];
-        [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+//        [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
       }
       
       if ([playerInfo[@"playingRoute"] isEqualToString:@"earpiece"]) {
