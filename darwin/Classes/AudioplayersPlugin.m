@@ -616,11 +616,23 @@ NSMutableDictionary * imageDict;
                   UIImage * image = imageDict[_imageUrl];
                   MPMediaItemArtwork *albumArt = [[MPMediaItemArtwork alloc] initWithImage: image];
                   playingInfo[MPMediaItemPropertyArtwork] = albumArt;
+                  if (_infoCenter != nil) {
+                    _infoCenter.nowPlayingInfo = playingInfo;
+                  }
               }else{
-                  [self downloadImage:url completion:^(UIImage *image) {
+                  if (_infoCenter != nil) {
+                    _infoCenter.nowPlayingInfo = playingInfo;
+                  }
+                  [self downloadImage:url completion:^(UIImage *image,NSString*urlStr) {
                       if(image){
                           MPMediaItemArtwork *albumArt = [[MPMediaItemArtwork alloc] initWithImage:image];
-                          [imageDict setObject:image forKey:_imageUrl];
+                          [imageDict setObject:image forKey:urlStr];
+                          if([_playerIndex isEqualToString:@"1"]){
+                              return;
+                          }
+                          if(![urlStr isEqualToString:_imageUrl]){
+                              return;
+                          }
                           NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[_infoCenter nowPlayingInfo]];
                           
                                         [dict setObject:albumArt forKey:MPMediaItemPropertyArtwork];
@@ -637,19 +649,18 @@ NSMutableDictionary * imageDict;
                   MPMediaItemArtwork *albumArt = [[MPMediaItemArtwork alloc] initWithImage: image];
                   playingInfo[MPMediaItemPropertyArtwork] = albumArt;
               }
+              if (_infoCenter != nil) {
+                _infoCenter.nowPlayingInfo = playingInfo;
+              }
           }
-    
-    if (_infoCenter != nil) {
-      _infoCenter.nowPlayingInfo = playingInfo;
-    }
     
     }
 #endif
 
--(void)downloadImage:(NSURL*)url completion:(void(^)(UIImage * image))completion{
+-(void)downloadImage:(NSURL*)url completion:(void(^)(UIImage * image,NSString * urlStr))completion{
     [[[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            completion([UIImage imageWithData:data]);
+            completion([UIImage imageWithData:data],url.absoluteString);
         });
         }] resume];
 }
@@ -1021,6 +1032,9 @@ recordingActive: (bool) recordingActive
 
     // Do something with the status...
     if ([[player currentItem] status ] == AVPlayerItemStatusReadyToPlay) {
+        if([_playerIndex isEqualToString:@"1"]){
+            return;
+        }
       [self updateDuration:playerId];
 
       VoidCallback onReady = playerInfo[@"onReady"];
@@ -1029,7 +1043,6 @@ recordingActive: (bool) recordingActive
         onReady(playerId);
       }
     } else if ([[player currentItem] status ] == AVPlayerItemStatusFailed) {
-        NSLog(@"========== error  1");
       [_channel_audioplayer invokeMethod:@"audio.onError" arguments:@{@"playerId": playerId, @"value": @"AVPlayerItemStatus.failed"}];
     }
 //  }else if([keyPath isEqualToString:@"playbackBufferEmpty"]){
