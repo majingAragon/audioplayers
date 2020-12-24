@@ -168,6 +168,9 @@ class AudioPlayer {
   final StreamController<PlayerControlCommand> _commandController =
       StreamController<PlayerControlCommand>.broadcast();
 
+  final StreamController<int> _seekPositionController =
+      StreamController<int>.broadcast();
+
   PlayingRouteState _playingRouteState = PlayingRouteState.SPEAKERS;
 
   /// Reference [Map] with all the players created by the application.
@@ -243,6 +246,11 @@ class AudioPlayer {
   ///
   /// Events are sent user tap system remote control command.
   Stream<PlayerControlCommand> get onPlayerCommand => _commandController.stream;
+
+  /// Stream of seek position.
+  ///
+  /// An event is going to be sent as soon as the audio seek position is changed.
+  Stream<int> get onSeekPosition => _seekPositionController.stream;
 
   /// Handler of changes on player state.
   @deprecated
@@ -683,6 +691,9 @@ class AudioPlayer {
       case 'audio.onGotPreviousTrackCommand':
         player._commandController.add(PlayerControlCommand.PREVIOUS_TRACK);
         break;
+      case 'audio.onSeekPosition':
+        player._seekPositionController.add(value);
+        break;
       default:
         _log('Unknown method ${call.method} ');
     }
@@ -715,6 +726,8 @@ class AudioPlayer {
     if (!_seekCompleteController.isClosed)
       futures.add(_seekCompleteController.close());
     if (!_errorController.isClosed) futures.add(_errorController.close());
+    if (!_seekPositionController.isClosed)
+      futures.add(_seekPositionController.close());
 
     await Future.wait(futures);
     players.remove(playerId);

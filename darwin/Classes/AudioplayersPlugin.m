@@ -59,6 +59,7 @@ const NSString *_defaultPlayingRoute = @"speakers";
 // 0 audio 1 radio
 NSString *_playerIndex;
 NSMutableDictionary * imageDict;
+BOOL isPlayingState = NO;
 
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
   _registrar = registrar;
@@ -81,9 +82,6 @@ NSMutableDictionary * imageDict;
              
       [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleRouteChange:) name:AVAudioSessionRouteChangeNotification object:[AVAudioSession sharedInstance]];
       
-//      [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackStalled:) name:AVPlayerItemPlaybackStalledNotification object:nil];
-//
-//      [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackStalled:) name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
       
     #if TARGET_OS_IPHONE
           // this method is used to listen to audio playpause event
@@ -103,21 +101,6 @@ NSMutableDictionary * imageDict;
   return self;
 }
 
-//-(void)playbackStalled:(id)value{
-//    if([_playerIndex isEqualToString:@"1"]){
-//        return;
-//    }
-//    NSLog(@"========== error  3");
-//
-//    [_channel_audioplayer invokeMethod:@"audio.onError" arguments:@{@"playerId": _currentPlayerId, @"value": @"AVPlayerItemStatus.failed"}];
-//
-//    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[_infoCenter nowPlayingInfo]];
-//    int rate = [dict[MPNowPlayingInfoPropertyPlaybackRate] intValue];
-//    if(rate != 0){
-//        [dict setObject:@(0) forKey:MPNowPlayingInfoPropertyPlaybackRate];
-//        [_infoCenter setNowPlayingInfo:dict];
-//    }
-//}
 
 - (void)needStop {
     _isDealloc = true;
@@ -131,9 +114,21 @@ NSMutableDictionary * imageDict;
     }
     NSDictionary *info = notification.userInfo;
     AVAudioSessionInterruptionType type = [info[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+    
+    //AVAudioSessionInterruptionWasSuspendedKey
     bool _isPlaying = false;
     NSString * playerState;
     if (type == AVAudioSessionInterruptionTypeBegan) {
+        if (@available(iOS 10.3, *)) {
+            if([info.allKeys containsObject:AVAudioSessionInterruptionWasSuspendedKey]){
+                BOOL isSuspend = [info[AVAudioSessionInterruptionWasSuspendedKey] boolValue];
+                if(isSuspend){
+                    return;
+                }
+            }
+        } else {
+            // Fallback on earlier versions
+        }
         //to pause
         _isPlaying = false;
         playerState = @"paused";
@@ -147,10 +142,11 @@ NSMutableDictionary * imageDict;
         }
     }
     if(playerState != nil){
-        [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"value": @(_isPlaying)}];
+        [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(_isPlaying),@"value",nil]];
         
         if (headlessServiceInitialized) {
-          [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"updateHandleMonitorKey": @(_updateHandleMonitorKey), @"value": playerState}];
+          [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(_updateHandleMonitorKey),@"updateHandleMonitorKey",playerState,@"value",nil]];
+            
         }
     }
     
@@ -177,10 +173,11 @@ NSMutableDictionary * imageDict;
             || [portType isEqualToString:AVAudioSessionPortBluetoothLE]
             || [portType isEqualToString:AVAudioSessionPortBluetoothHFP]
             || [portType isEqualToString:AVAudioSessionPortBluetoothA2DP]) {
-            [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"value": @(NO)}];
+            [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(NO),@"value",nil]];
             
             if (headlessServiceInitialized) {
-              [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"updateHandleMonitorKey": @(_updateHandleMonitorKey), @"value": @"paused"}];
+              [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(_updateHandleMonitorKey),@"updateHandleMonitorKey",@"paused",@"value",nil]];
+                
             }
         }
     }
@@ -423,6 +420,11 @@ NSMutableDictionary * imageDict;
     result(FlutterMethodNotImplemented);
   }
   if(![call.method isEqualToString:@"setUrl"]) {
+      if([call.method isEqualToString:@"play"]){
+          isPlayingState = YES;
+      }else if([call.method isEqualToString:@"pause"]){
+          isPlayingState = NO;
+      }
     result(@(1));
   }
 }
@@ -430,7 +432,8 @@ NSMutableDictionary * imageDict;
 -(void) initPlayerInfo: (NSString *) playerId {
   NSMutableDictionary * playerInfo = players[playerId];
   if (!playerInfo) {
-    players[playerId] = [@{@"isPlaying": @false, @"volume": @(1.0), @"rate": @(_defaultPlaybackRate), @"looping": @(false), @"playingRoute": _defaultPlayingRoute} mutableCopy];
+    players[playerId] = [[NSDictionary dictionaryWithObjectsAndKeys:@false,@"isPlaying",@(1.0),@"volume",@(_defaultPlaybackRate),@"rate",@(false),@"looping",_defaultPlayingRoute,@"playingRoute",nil] mutableCopy];
+      
   }
 }
 
@@ -539,16 +542,16 @@ NSMutableDictionary * imageDict;
     -(MPRemoteCommandHandlerStatus) nextTrackEvent: (MPRemoteCommandEvent *) nextTrackEvent {
        NSLog(@"nextTrackEvent");
 
-       [_channel_audioplayer invokeMethod:@"audio.onGotNextTrackCommand" arguments:@{@"playerId": _currentPlayerId}];
-
+       [_channel_audioplayer invokeMethod:@"audio.onGotNextTrackCommand" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",nil]];
+        
        return MPRemoteCommandHandlerStatusSuccess;
     }
 
     -(MPRemoteCommandHandlerStatus) previousTrackEvent: (MPRemoteCommandEvent *) previousTrackEvent {
       NSLog(@"previousTrackEvent");
 
-        [_channel_audioplayer invokeMethod:@"audio.onGotPreviousTrackCommand" arguments:@{@"playerId": _currentPlayerId}];
-
+        [_channel_audioplayer invokeMethod:@"audio.onGotPreviousTrackCommand" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",nil]];
+        
         return MPRemoteCommandHandlerStatusSuccess;
     }
 
@@ -576,10 +579,11 @@ NSMutableDictionary * imageDict;
     } else {
         // Fallback on earlier versions
     }
-    [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"value": @(_isPlaying)}];
+    [_channel_audioplayer invokeMethod:@"audio.onNotificationPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(_isPlaying),@"value",nil]];
     
     if (headlessServiceInitialized) {
-      [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:@{@"playerId": _currentPlayerId, @"updateHandleMonitorKey": @(_updateHandleMonitorKey), @"value": playerState}];
+      [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:_currentPlayerId,@"playerId",@(_updateHandleMonitorKey),@"updateHandleMonitorKey",playerState,@"value",nil]];
+        
     }
     return MPRemoteCommandHandlerStatusSuccess;
 }
@@ -843,7 +847,7 @@ recordingActive: (bool) recordingActive
   if(CMTimeGetSeconds(duration)>0){
     NSLog(@"%@ -> invokechannel", osName);
     int mseconds = [self getMillisecondsFromCMTime:duration];
-    [_channel_audioplayer invokeMethod:@"audio.onDuration" arguments:@{@"playerId": playerId, @"value": @(mseconds)}];
+    [_channel_audioplayer invokeMethod:@"audio.onDuration" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(mseconds),@"value",nil]];
   }
 }
 
@@ -874,7 +878,7 @@ recordingActive: (bool) recordingActive
     }
     int mseconds = [self getMillisecondsFromCMTime:time];
     
-    [_channel_audioplayer invokeMethod:@"audio.onCurrentPosition" arguments:@{@"playerId": playerId, @"value": @(mseconds)}];
+    [_channel_audioplayer invokeMethod:@"audio.onCurrentPosition" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(mseconds),@"value",nil]];
 }
 
 -(void) pause: (NSString *) playerId {
@@ -976,10 +980,14 @@ recordingActive: (bool) recordingActive
               bool isPlay = [playerInfo[@"isPlaying"] boolValue];
             [ self updateNotification:seconds isPlay:isPlay];
           }
-          [ _channel_audioplayer invokeMethod:@"audio.onSeekComplete" arguments:@{@"playerId": playerId,@"value":@(YES)}];
+          [ _channel_audioplayer invokeMethod:@"audio.onSeekComplete" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(YES),@"value",nil]];
+          
+          [ _channel_audioplayer invokeMethod:@"audio.onSeekPosition" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(seconds*1000),@"value",nil]];
+          
       }else{
           NSLog(@"ios -> seekCancelled...");
-          [ _channel_audioplayer invokeMethod:@"audio.onSeekComplete" arguments:@{@"playerId": playerId,@"value":@(NO)}];
+          [ _channel_audioplayer invokeMethod:@"audio.onSeekComplete" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(NO),@"value",nil]];
+          
       }
   }];
   #else
@@ -1003,12 +1011,14 @@ recordingActive: (bool) recordingActive
     [ self resume:playerId ];
   }
 
-  [ _channel_audioplayer invokeMethod:@"audio.onComplete" arguments:@{@"playerId": playerId}];
+  [ _channel_audioplayer invokeMethod:@"audio.onComplete" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",nil]];
+    
   NSError *error = nil;
     [[AVAudioSession sharedInstance] setActive:NO error:&error];
   #if TARGET_OS_IPHONE
       if (headlessServiceInitialized) {
-          [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:@{@"playerId": playerId, @"updateHandleMonitorKey": @(_updateHandleMonitorKey), @"value": @"completed"}];
+          [_callbackChannel invokeMethod:@"audio.onNotificationBackgroundPlayerStateChanged" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@(_updateHandleMonitorKey),@"updateHandleMonitorKey",@"completed",@"value",nil]];
+          
       }
   #endif
 }
@@ -1038,12 +1048,13 @@ recordingActive: (bool) recordingActive
       [self updateDuration:playerId];
 
       VoidCallback onReady = playerInfo[@"onReady"];
-      if (onReady != nil) {
+      if (onReady != nil && isPlayingState) {
         [playerInfo removeObjectForKey:@"onReady"];
         onReady(playerId);
       }
     } else if ([[player currentItem] status ] == AVPlayerItemStatusFailed) {
-      [_channel_audioplayer invokeMethod:@"audio.onError" arguments:@{@"playerId": playerId, @"value": @"AVPlayerItemStatus.failed"}];
+      [_channel_audioplayer invokeMethod:@"audio.onError" arguments:[NSDictionary dictionaryWithObjectsAndKeys:playerId,@"playerId",@"AVPlayerItemStatus.failed",@"value",nil]];
+        
     }
 //  }else if([keyPath isEqualToString:@"playbackBufferEmpty"]){
 //      NSMutableDictionary * playerInfo = players[_currentPlayerId];
