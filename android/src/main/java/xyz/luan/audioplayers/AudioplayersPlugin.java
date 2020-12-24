@@ -263,30 +263,37 @@ public class AudioplayersPlugin implements MethodCallHandler, FlutterPlugin,Audi
     public void handleIsPlaying(Player player) {
         Log.d(TAG,"handleIsPlaying");
         currentPlayer=player;
+        sendUpdateNotificationToService();
     }
 
     @Override
     public void handleDuration(Player player) {
         currentPlayer=player;
+        sendUpdateNotificationToService();
         channel.invokeMethod("audio.onDuration", buildArguments(player.getPlayerId(), player.getDuration()));
     }
+
+
 
     @Override
     public void handleCompletion(Player player) {
         currentPlayer=player;
+        sendUpdateNotificationToService();
         channel.invokeMethod("audio.onComplete", buildArguments(player.getPlayerId(), true));
     }
 
     @Override
     public void handleError(Player player, String message) {
         currentPlayer=player;
+        sendUpdateNotificationToService();
         channel.invokeMethod("audio.onError", buildArguments(player.getPlayerId(), message));
     }
 
     @Override
     public void handlePause(Player player) {
         currentPlayer=player;
-        handleNotificationClick();
+        handleNotificationClick(false);
+        sendUpdateNotificationToService();
     }
 
     @Override
@@ -302,69 +309,20 @@ public class AudioplayersPlugin implements MethodCallHandler, FlutterPlugin,Audi
         return result;
     }
 
-
-    private static final class UpdateCallback implements Runnable {
-
-        private final WeakReference<Map<String, Player>> mediaPlayers;
-        private final WeakReference<MethodChannel> channel;
-        private final WeakReference<Handler> handler;
-        private final WeakReference<AudioplayersPlugin> audioplayersPlugin;
-
-        private UpdateCallback(final Map<String, Player> mediaPlayers,
-                               final MethodChannel channel,
-                               final Handler handler,
-                               final AudioplayersPlugin audioplayersPlugin) {
-            this.mediaPlayers = new WeakReference<>(mediaPlayers);
-            this.channel = new WeakReference<>(channel);
-            this.handler = new WeakReference<>(handler);
-            this.audioplayersPlugin = new WeakReference<>(audioplayersPlugin);
-        }
-
-        @Override
-        public void run() {
-//            final Map<String, Player> mediaPlayers = this.mediaPlayers.get();
-//            final MethodChannel channel = this.channel.get();
-//            final Handler handler = this.handler.get();
-//            final AudioplayersPlugin audioplayersPlugin = this.audioplayersPlugin.get();
-//            if (mediaPlayers == null || channel == null || handler == null || audioplayersPlugin == null) {
-//                if (audioplayersPlugin != null) {
-//                    audioplayersPlugin.stopPositionUpdates();
-//                }
-//                return;
-//            }
-//            boolean nonePlaying = true;
-//            for (Player player : mediaPlayers.values()) {
-//                if (!player.isActuallyPlaying()) {
-//                    continue;
-//                }
-//                try {
-//                    nonePlaying = false;
-//                    final String key = player.getPlayerId();
-//                    final int duration = player.getDuration();
-//                    final int time = player.getCurrentPosition();
-//                    channel.invokeMethod("audio.onDuration", buildArguments(key, duration));
-//                    channel.invokeMethod("audio.onCurrentPosition", buildArguments(key, time));
-//                    if (audioplayersPlugin.seekFinish) {
-//                        channel.invokeMethod("audio.onSeekComplete", buildArguments(player.getPlayerId(), true));
-//                        audioplayersPlugin.seekFinish = false;
-//                    }
-//                } catch (UnsupportedOperationException e) {
-//
-//                }
-//            }
-//
-//            if (nonePlaying) {
-//                audioplayersPlugin.stopPositionUpdates();
-//            } else {
-//                handler.postDelayed(this, 200);
-//            }
-        }
-    }
-
     private void sendPauseToService(){
         if(currentPlayer!=null){
             Intent intent=new Intent(context,AudioService.class);
             intent.setAction("pause");
+            intent.putExtra("playerId",currentPlayer.getPlayerId());
+            intent.putExtra("mode","PlayerMode.MEDIA_PLAYER");
+            context.startService(intent);
+        }
+    }
+
+    private void sendUpdateNotificationToService(){
+        if(currentPlayer!=null){
+            Intent intent=new Intent(context,AudioService.class);
+            intent.setAction("updateNotification");
             intent.putExtra("playerId",currentPlayer.getPlayerId());
             intent.putExtra("mode","PlayerMode.MEDIA_PLAYER");
             context.startService(intent);
@@ -385,28 +343,30 @@ public class AudioplayersPlugin implements MethodCallHandler, FlutterPlugin,Audi
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
+            Log.d(TAG,"action==="+action);
             if (action.equals(INSOMNIAC_PLAY)) {
-                sendPauseToService();
-                handleNotificationClick();
-            } else if (action.equals(INSOMNIAC_PAUSE)) {
                 sendResumeToService();
-                handleNotificationClick();
+                handleNotificationClick(true);
+            } else if (action.equals(INSOMNIAC_PAUSE)) {
+                sendPauseToService();
+                handleNotificationClick(false);
             }else if(action.equals(AudioManager.ACTION_HEADSET_PLUG)||action.equals(AudioManager.ACTION_AUDIO_BECOMING_NOISY)){
                 int state=intent.getIntExtra("state",2);
                 if(state==0){//拔出耳机
                     if(currentPlayer!=null&&currentPlayer.isActuallyPlaying()){
                         sendPauseToService();
-                        handleNotificationClick();
+                        handleNotificationClick(false);
                     }
                 }
             }
         }
     };
 
-    private void handleNotificationClick(){
+    private void handleNotificationClick(boolean isPlaying){
         if(currentPlayer!=null){
             String playId=currentPlayer.getPlayerId();
-            channel.invokeMethod("audio.onNotificationPlayerStateChanged", buildArguments(playId, currentPlayer.isActuallyPlaying()));
+            Log.d(TAG," currentPlayer.isActuallyPlaying()="+ currentPlayer.isActuallyPlaying());
+            channel.invokeMethod("audio.onNotificationPlayerStateChanged", buildArguments(playId, isPlaying));
         }
     }
 

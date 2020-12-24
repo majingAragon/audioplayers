@@ -103,12 +103,13 @@ public class AudioService extends Service {
                 player.play(getApplicationContext());
                 Log.d(TAG,"player.play");
                 updateNotification();
-            break;
+                break;
             case "resume":
                 player.play(getApplicationContext());
                 updateNotification();
                 break;
             case "pause": {
+                Log.d(TAG,"player.pause");
                 player.pause();
                 updateNotification();
                 break;
@@ -161,6 +162,11 @@ public class AudioService extends Service {
                 loadImage();
                 break;
             }
+            case "updateNotification":{
+                updateNotification();
+                break;
+            }
+            default:
         }
     }
 
@@ -320,6 +326,9 @@ public class AudioService extends Service {
 
     @Override
     public void onDestroy() {
+        if(currentPlayer!=null){
+            currentPlayer.release();
+        }
         cancelNotification();
         super.onDestroy();
     }
